@@ -31,6 +31,7 @@ from huggingface_hub import hf_hub_download, model_info, snapshot_download
 from packaging import version
 from PIL import Image
 from tqdm.auto import tqdm
+from torch._dynamo import eval_frame
 
 import diffusers
 
@@ -97,6 +98,9 @@ LOADABLE_CLASSES = {
     },
     "onnxruntime.training": {
         "ORTModule": ["save_pretrained", "from_pretrained"],
+    },
+    "torch._dynamo.eval_frame": {
+        "OptimizedModule": ["save_pretrained", "from_pretrained"],
     },
 }
 
@@ -255,7 +259,9 @@ def maybe_raise_or_warn(
             if class_candidate is not None and issubclass(class_obj, class_candidate):
                 expected_class_obj = class_candidate
 
-        if not issubclass(passed_class_obj[name].__class__, expected_class_obj):
+        if passed_class_obj[name].__class__ == eval_frame.OptimizedModule:
+            logger.info(f'{passed_class_obj[name].__class__} is dynamo compiled model, skip check it')
+        elif not issubclass(passed_class_obj[name].__class__, expected_class_obj):
             raise ValueError(
                 f"{passed_class_obj[name]} is of type: {type(passed_class_obj[name])}, but should be"
                 f" {expected_class_obj}"

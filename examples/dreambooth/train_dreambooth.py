@@ -259,6 +259,7 @@ def parse_args(input_args=None):
         action="store_true",
         help="Use prompt per image. Put prompts in the same directory as images, e.g. for image.png create image.png.txt.",
     )
+    parser.add_argument("--use_pytorch_dynamo", action="store_true", help="Whether to use torch.compile")
 
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -427,6 +428,7 @@ def main(args):
         mixed_precision=args.mixed_precision,
         log_with="tensorboard",
         logging_dir=logging_dir,
+        dynamo_backend='INDUCTOR' if args.use_pytorch_dynamo else None
     )
 
     logging.basicConfig(
@@ -741,6 +743,9 @@ def main(args):
             with open(os.path.join(save_dir, "args.json"), "w") as f:
                 json.dump(args.__dict__, f, indent=2)
 
+            # in 3090 text_encoder dynamo compile mode raise
+            # RuntimeError: Inference tensors do not track version counter.
+            # maybe caused by transfromers. wait fix
             if args.save_sample_prompt is not None:
                 pipeline = pipeline.to(accelerator.device)
                 g_cuda = torch.Generator(device=accelerator.device).manual_seed(args.seed)
@@ -757,9 +762,9 @@ def main(args):
                             generator=g_cuda
                         ).images
                         images[0].save(os.path.join(sample_dir, f"{i}.png"))
-                del pipeline
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+            del pipeline
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             print(f"[*] Weights saved at {save_dir}")
 
     # Only show the progress bar once on each machine.
